@@ -1,0 +1,373 @@
+BREAKOUT PPO TRAINING — PROGRESS LOG
+=====================================
+
+Project: PPO agent learning Atari Breakout (ALE/Breakout-v5)
+Hardware: Jetson (aarch64) with CUDA GPU
+Target: 20,000,000 training steps
+
+Run 1 (initial): 2026-05-29 13:45 → 2026-05-30 09:25 local
+  PID 19724. Stopped at 5,385,728 steps. Reward plateau at +28-33.
+  ent_coef = 0.01 (default), no auto-stop.
+
+Run 2 (restart with more exploration): 2026-05-30 09:27 →
+  PID 86049. Resumed from best_model.zip.
+  ent_coef = 0.02 (doubled to encourage tunnel-strategy exploration).
+  STOP_AT_TIER = "expert" (auto-stops when reward crosses +100).
+  Budget: 14.6M more steps to reach the 20M target.
+
+
+TIER MILESTONES
+================
+
+  TIER       STEPS         REWARD     NOTE
+  --------   -----------   --------   ---------------------------------
+  Learning   100,000       +6.00      First eval; auto-fire on reset
+                                      let random play already score ~5,
+                                      so Beginner tier was skipped.
+  Skilled    1,700,000     +30.20     Big breakthrough. Eval std ±8.3
+                                      means episodes ranged 20-40+.
+                                      Came ~3-4 hours ahead of ETA.
+  Expert     (pending)     +100 ?     Expected when agent discovers
+                                      the "tunnel" strategy.
+
+
+ROLLING REWARD — WHAT THE NUMBER MEANS
+=======================================
+
+The "Rolling reward" reported at every check is `rollout/ep_rew_mean`
+from Stable-Baselines3:
+
+  Rolling reward = mean total reward over the last 100 completed
+                   training episodes (a sliding window).
+
+Each "episode" is one full Breakout game (start to game-over after all
+5 lives are lost). Each episode produces one reward number, which is
+the total points scored in that game. As a new episode ends it enters
+the window and the oldest one drops out.
+
+Properties to keep in mind:
+
+  - Lags real-time performance.
+    The window contains episodes from ~100 games ago. If the policy
+    just improved 10 minutes back, only a handful of post-improvement
+    episodes are in the window — the rest still reflect the old policy.
+
+  - Smooths out individual luck.
+    One bad game (say, 12 points) vs one good one (40 points) is just
+    noise; the rolling average tells us the policy's typical level.
+
+  - Sees exploration noise.
+    During training the policy is stochastic; the agent occasionally
+    tries non-greedy actions. So the rolling reward is consistently
+    a few points LOWER than the eval reward.
+
+Two distinct reward metrics in this log:
+
+  - Rolling reward (continuous during training)
+    What the checkpoints in the tables below report. Source:
+    `rollout/ep_rew_mean` line in the SB3 stdout.
+
+  - Eval reward / Tier reward (only at eval_freq=100,000 steps)
+    Mean of 10 DETERMINISTIC episodes (no exploration noise) used by
+    the EvolutionCallback to decide if a tier has been crossed. Source:
+    `eval/mean_reward` in the SB3 stdout. Generally a few points higher
+    than the rolling reward at the same moment.
+
+Example from our run: at step 1.7M the eval reported +30.2 (Skilled tier
+saved), while the rolling reward at that same step was +26.1. Both are
+correct — they measure different things.
+
+
+HOURLY PROGRESS CHECKPOINTS
+============================
+
+The following table shows the rolling 100-episode reward at each check.
+Eval tier reward (10 deterministic episodes) is generally higher than the
+rolling training average because training includes exploration noise.
+
+  CHECK   STEPS         ROLLING       Δ vs prev   FPS    NOTE
+                        REWARD
+  -----   -----------   ----------    ---------   ----   ---------------
+  1       512           +1.5          -           10     Warming up
+  2       109,056       +5.1          —           64     Hovering at
+                                                          Learning thresh
+  3       373,760       +20.3         +15.2/270k  70     Rapid early climb
+  4       644,096       +22.2         +1.9/270k   72     Decelerating
+  5       913,920       +23.2         +1.0/270k   73     Plateau forming
+  6       1,187,840     +24.0         +0.8/274k   73     Mid-plateau
+  7       1,461,248     +25.5         +1.5/273k   74     Slight pickup
+  8       1,734,144     +26.1         +0.6/273k   74     After Skilled tier
+  9       2,004,992     +28.7         +2.6/270k   74     Pace returning
+  10      2,280,448     +26.0         -2.7/275k   74     First dip (noise)
+  11      2,553,344     +27.3         +1.3/273k   74     Recovered
+  12      2,827,264     +28.3         +1.0/274k   75     Slow drift up
+  13      3,103,744     +30.7         +2.4/277k   75     Crossed +30 in
+                                                          rolling avg
+  14      3,384,832     +29.8         -0.9/281k   75     Oscillation
+  15      3,662,336     +28.5         -1.3/278k   75     Second plateau
+                                                          forming
+  16      3,940,352     +28.8         +0.3/278k   75     Flat
+  17      4,217,344     +28.9         +0.1/277k   75     Flat
+  18      4,496,896     +29.1         +0.2/280k   75     Flat
+  19      4,773,888     +31.6         +2.5/277k   75     Plateau exit!
+  20      5,051,904     +33.0         +1.4/278k   75     Higher band
+  21      5,329,408     +31.0         -2.0/278k   76     Oscillating
+                                                          in +31-33 band
+  22      5,355,520     +28.6         -2.4/26k    76     Short interval
+                                                          (only 5 min)
+  STOP    5,385,728     -             -           76     Killed for restart
+
+
+Run 2 — resumed from best_model.zip (last saved at step 3,808k).
+The "STEPS" column shows total cumulative steps (not Run 2-only).
+First few checks show the exploration dip caused by raising ent_coef.
+
+  CHECK   STEPS         ROLLING       Δ vs prev   FPS    NOTE
+                        REWARD
+  -----   -----------   ----------    ---------   ----   ---------------
+  R2-1    3,808,384     +26.8         (resumed)   75     Exploration dip
+                                                          beginning
+  R2-2    4,086,912     +26.0         -0.8/278k   76     Dip deepens
+  R2-3    4,364,928     +24.6         -1.4/278k   76     Dip bottom
+  R2-4    4,640,896     +26.4         +1.8/276k   76     Recovery begins
+  R2-5    4,754,560     +25.7         -0.7/114k   76     Short interval
+  R2-6    4,917,376     +27.7         +2.0/163k   77     Recovering
+  R2-7    5,196,416     +27.2         -0.5/279k   76     Holding ~+27
+  R2-8    5,472,896     +25.1         -2.1/277k   76     Dip again
+  R2-9    5,750,400     +26.7         +1.6/278k   76     Bounce
+  R2-10   6,026,880     +24.8         -1.9/276k   76     Dip
+  R2-11   6,303,872     +27.4         +2.6/277k   76     Bounce
+  R2-12   6,583,424     +25.1         -2.3/280k   76     Dip
+  R2-13   6,861,440     +31.9         +6.8/278k   77     Big jump - first
+                                                          break above +30
+  R2-14   7,139,456     +28.3         -3.6/278k   77     Spike pulled back
+  R2-15   7,417,472     +30.4         +2.1/278k   77     Climb
+  R2-16   7,696,512     +28.6         -1.8/279k   77     Pullback
+  R2-17   7,973,504     +28.1         -0.5/277k   77     Flat
+  R2-18   8,251,520     +28.5         +0.4/278k   77     Flat
+  R2-19   8,528,512     +27.9         -0.6/277k   77     Flat
+  R2-20   8,806,016     +29.7         +1.8/278k   77     Climb
+  R2-21   9,086,592     +30.8         +1.1/280k   77     Cross +30 again
+  R2-22   9,364,096     +31.1         +0.3/278k   77     Holding above +30
+  R2-23   9,641,088     +30.7         -0.4/277k   77     Slight pullback
+  R2-24   9,919,104     +31.7         +1.0/278k   77     Slow upward drift
+  R2-25  10,198,656     +30.7         -1.0/280k   77     Halfway to target
+                                                          (10M of 20M)
+  R2-26  10,282,112     +31.6         +0.9/84k    77     Short interval
+
+
+REWARD TRAJECTORY PATTERN
+==========================
+
+Phase 1 (0 -> 100k): Random/lucky play
+    Reward 0-6. Auto-fire mechanic + random paddle motion gives ~5 reward
+    by chance. The Learning tier was reached on the first eval.
+
+Phase 2 (100k -> 400k): Rapid early learning
+    Reward climbed 6 -> 20 in ~300k steps. Agent learned the basics:
+    track the ball, hit it back, score on bottom rows.
+
+Phase 3 (400k -> 1.4M): The plateau
+    Classic Breakout flat zone. Reward hovered 22-25 with very slow gains
+    (+0.3 to +0.7 per 100k steps). This is the published Breakout PPO
+    behavior — agent has the easy points and is searching for strategy.
+
+Phase 4 (1.4M -> 3.4M): Brief climb then second plateau
+    Reward gradient picked back up (+1.0 to +2.6 per 100k). Skilled tier
+    fired at 1.7M steps with reward +30.2. Rolling avg crossed +30
+    briefly at 3.1M but pulled back.
+
+Phase 5 (3.4M -> 4.5M): Locked plateau at +28-29
+    Ten consecutive checks oscillated between +28 and +30. Mean ~28.5,
+    std ~1.4. The agent had truly converged on this local optimum.
+
+Phase 6 (4.5M -> 5.4M): Brief plateau exit before restart
+    Reward jumped to +33 between two checks. Likely the start of an
+    upward break, but the run was stopped at 5,385,728 steps to apply
+    a higher entropy bonus (see Run 2).
+
+Phase 7 (Run 2, 3.8M -> 6.8M): Exploration dip and recovery
+    First ~3M steps of Run 2. Reward dipped from +27 down to +24.6
+    (bottom at R2-3) and oscillated +24-28 for ~10 checks. The agent
+    was sampling new behaviours; reward variance was higher than Run 1
+    but the mean stayed slightly below Run 1's plateau.
+
+Phase 8 (6.8M -> ongoing): Higher floor, no tunnel yet
+    Starting around R2-13 (step 6.86M) reward broke into the +30-32
+    band and has held there since. Mean of last several checks: ~+30.6,
+    which is ~+2 above Run 1's plateau. The exploration lifted the
+    floor a couple of points but has NOT unlocked the tunnel strategy.
+    At step 10.2M (halfway to the 20M target) the agent is still
+    operating at Skilled-tier level with no Expert-tier breakthrough.
+
+
+TRAINING CURVE OBSERVATIONS
+============================
+
+Two snapshots of the 6-panel training_curves.png have been captured during
+training. Comparison between them:
+
+  PANEL                  AT 1.04M STEPS    AT 2.11M STEPS    TREND
+  -------------------    --------------    --------------    -------
+  Mean Episode Reward    ~23 plateau       ~28 climbing      Improving
+  Reward (smoothed)      Flat              Clean upward arc  Improving
+  Policy Loss            Oscillates ~0     Oscillates ~0     Healthy
+  Policy Entropy         -0.4              -0.6 to -0.8      Mild flag
+  Value Loss             ~0.5              ~0.6-0.8          Mild flag
+  Clip Fraction          ~0.10             ~0.05-0.10        Healthy
+
+Two mild yellow flags identified:
+
+  - Policy Entropy: slowly drifting more negative. The agent is gradually
+    committing to a strategy. Not a problem as long as reward keeps
+    rising. Would only be concerning if reward stalled AND entropy kept
+    falling (premature convergence).
+
+  - Value Loss: creeping up rather than stabilizing. The critic is
+    struggling to track the policy's changing value estimates. Modest
+    rise (still under 1.0), tolerable as long as it doesn't accelerate.
+
+No intervention needed at any check so far.
+
+
+WHAT TRIGGERED EACH TIER SAVE
+==============================
+
+The EvolutionCallback (callbacks.py) only saves a checkpoint the FIRST
+time the agent enters a skill band. The save criterion is the mean of 10
+evaluation episodes at eval_freq=100,000 steps. Filename format:
+
+  tier_<name>_t<steps>_r<reward>.zip
+
+Each save also records 2 gameplay episodes as MP4 video using the
+deterministic policy at that point.
+
+
+RUN 2 — RESTART WITH HIGHER EXPLORATION
+========================================
+
+Why we restarted
+-----------------
+After ~20 hours of Run 1 training, the agent had clearly converged at the
+Skilled tier (+28-33) with no sign of finding the tunnel strategy. The
+published behavior of vanilla PPO on Breakout is to plateau here unless
+the entropy coefficient is tuned higher to keep exploration alive.
+
+The decision: pause Run 1 with the best model preserved, raise ent_coef
+from 0.01 to 0.02, and resume. This trades a few hours of temporary reward
+dip (the agent re-explores) for a meaningfully higher chance of breaking
+into the Expert tier.
+
+Estimated probabilities (from published PPO Breakout literature):
+  Vanilla ent_coef=0.01  ->  ~20% chance of tunnel discovery before 20M steps
+  ent_coef=0.02          ->  ~50% chance of tunnel discovery before 20M steps
+
+Changes applied
+----------------
+  config.py
+    PPO_CONFIG["ent_coef"]  0.01  ->  0.02
+    STOP_AT_TIER            None  ->  "expert"   (new key)
+
+  callbacks.py
+    EvolutionCallback now accepts stop_at_tier= parameter.
+    When the saved tier matches stop_at_tier, _on_step() returns False
+    on the next call, ending training cleanly.
+
+  train.py
+    On --resume, model.ent_coef is overridden from the current config
+    (PPO.load would otherwise restore the saved 0.01 value).
+    EvolutionCallback receives stop_at_tier from config.STOP_AT_TIER.
+
+What to expect
+---------------
+  First 30 min - 2 hours:  Reward may dip below +30 as the agent explores
+  Hours 18-40:             Realistic window for tunnel-strategy breakthrough
+  On breakthrough:         Reward can jump from ~30 to 100+ in a single hour
+                           tier_expert_*.zip + video will be saved
+                           Auto-stop kicks in immediately after that save
+
+If no breakthrough by 20M total steps, training exits normally and we
+still have a Skilled-tier agent (already preserved in best_model.zip).
+
+
+SETUP NOTES
+============
+
+Tier thresholds set at:
+  Beginner   0     Random/lucky paddle play
+  Learning   5     Reliably hits ball, clears bottom rows
+  Skilled    30    Clears most of the wall
+  Expert     100   Has discovered tunnel strategy
+
+These were calibrated from published Atari Breakout PPO benchmarks and the
+behaviour observed in our first eval. The thresholds are evenly spaced on
+a logarithmic-feeling scale, since Breakout reward grows non-linearly with
+skill.
+
+Total training time so far at check 9: ~6.8 hours wall clock for 2M steps.
+Estimated total: ~30-35 hours for full 20M run at current 74 fps.
+
+
+HOW TO RESUME WORK  (UPDATED 2026-06-03 — training now runs under systemd)
+===================
+
+Training is managed by the `breakout-train.service` user service, not by
+manual nohup/kill — control it with the systemctl commands below.
+
+  systemctl --user status  breakout-train.service
+  systemctl --user stop    breakout-train.service     # clean stop
+  systemctl --user restart breakout-train.service     # apply config changes
+  # resume from a specific model once:
+  echo models/best_model.zip > models/.resume_override
+  systemctl --user restart breakout-train.service
+
+To watch saved versions play:
+  python3 play.py --tier skilled
+  python3 play.py --compare           # split-screen first vs best
+  python3 play.py --all               # render every tier in sequence
+
+
+===========================================================================
+UPDATE 2026-06-01 -> 06-03 — INFRASTRUCTURE OVERHAUL + RUN 1 ABANDONED
+===========================================================================
+
+The ent_coef=0.02 explore run was carried forward and patched heavily over
+2026-06-01..03, then abandoned at ~26.5M steps. Sequence:
+
+Infrastructure added (all survive reboots, which were frequent):
+  - systemd user service + linger  -> auto-resume training on boot
+  - PruningCheckpointCallback       -> ckpt every 500k steps, keep last 5
+  - SubprocVecEnv (USE_SUBPROC_ENV) -> ~1.7x faster (CPU-bound, GPU idle)
+  - autostart_train.sh CUDA-ready wait (fixed boot-time on-failure churn)
+  - one-shot .resume_override mechanism
+  - LR/clip resume-horizon fix (pass REMAINING budget so anneal stays absolute)
+
+Exploration retry: ent_coef 0.02->0.04, TOTAL 20M->40M. Result: a one-time
+lift from the ~30 plateau to a new ~40 plateau, then stuck. Exploit phase
+(ent_coef 0.04->0.01, clip annealing, resumed from best) converged the policy
+TIGHT at ~42 but unlocked nothing higher (one +58.5 spike, not reproduced).
+
+Memory crisis: N_ENVS=8 + desktop + dashboard exhausted the 6.7GB RAM; zram
+swap hit 89-100% and kern.log shows repeated OOM-kills of python3. Fixed:
+N_ENVS 8->4, batch_size->256, Streamlit dashboard stopped. Swap -> ~30%.
+Reboots themselves are POWER brown-outs (abrupt kern.log cut, no OOM/panic).
+
+THE KEY FINDING — raw eval:
+  Researched GitHub/RL-Zoo. Our config matched the proven recipe, yet a RAW
+  full-game eval of best_model (eval_raw.py: no clip, full 5-life games)
+  scored only ~30 (max 59) vs the RL-Zoo PPO benchmark of 398. So the agent
+  was GENUINELY underperforming (not just a clipped/per-life measurement
+  artifact). Conclusion: the meandering explore->patch history settled in a
+  mediocre basin.
+
+DECISION: back up Run 1 (backups/run1_explore-exploit_20260603_135803/) and
+start a fresh clean run from scratch on the proven RL-Zoo recipe.
+
+===========================================================================
+RUN (fresh) — 2026-06-03 ~13:59 — clean RL-Zoo recipe from scratch
+===========================================================================
+  ent_coef=0.01, clip_range lin_0.1->0, lr lin_2.5e-4->0, n_steps=128,
+  batch_size=256, n_epochs=4, frame_stack=4, N_ENVS=4, TOTAL=20M.
+  Goal: beat the ~30 plateau; benchmark reaches ~398 by 10M steps.
+  Watch: clipped eval should climb past ~30-40 within a few M steps and keep
+  rising through the tiers (learning->skilled->expert) if the recipe works.

@@ -1,0 +1,127 @@
+BREAKOUT PPO — CONVERGENCE GUIDE
+=================================
+
+The training curves saved to plots/training_curves.png give a full picture
+of whether the agent is learning correctly. Here is how to read each panel.
+
+
+SIGNS THE TRAINING IS CONVERGING
+---------------------------------
+
+Mean Episode Reward
+    Rises from ~0 toward 100+ and then flattens out (or keeps climbing
+    toward 400 if the agent learns the tunnel-digging strategy).
+
+Reward (smoothed)
+    Same trend as above but averaged over 30 updates, so the signal is
+    cleaner. This is the most reliable convergence indicator.
+
+Policy Loss
+    Oscillates near 0 without drifting away in either direction.
+
+Policy Entropy
+    Gradually decreases over time. The agent becomes more decisive as it
+    learns a good strategy.
+
+Value Loss
+    Decreases and stabilizes. The critic (value network) is learning to
+    accurately predict future rewards.
+
+Clip Fraction
+    Stays consistently in the 0.05 to 0.15 range. This means PPO's clipping
+    mechanism is keeping policy updates at a safe size.
+
+
+SIGNS OF PROBLEMS
+-----------------
+
+Reward stuck at 0-2 for many million steps
+    The agent never learned to FIRE the ball at episode start. Breakout
+    requires pressing FIRE to launch — without it the episode times out
+    with no score. SB3's AtariWrapper handles this via FireResetEnv, so it
+    should not happen, but if it does, double-check the wrapper stack.
+
+Reward rises then suddenly collapses
+    Catastrophic forgetting. The policy overshot and destroyed what it had
+    learned. Try lowering INITIAL_LR or reducing clip_range.
+
+Entropy drops to near 0 early in training
+    The agent got stuck in a bad deterministic policy (often: always-FIRE
+    or always-NOOP) before finding a good one. Raise ent_coef in
+    config.py to encourage more exploration.
+
+Value Loss keeps growing instead of stabilizing
+    The critic is diverging. Try lowering vf_coef or INITIAL_LR.
+
+Clip Fraction above 0.3 consistently
+    Policy updates are too large. Lower INITIAL_LR or reduce clip_range.
+
+
+EXPECTED LEARNING TIMELINE (20M steps on Breakout)
+---------------------------------------------------
+
+Steps 0 - 2M     Reward flat near 0-2. The agent plays randomly and is
+                 just starting to learn that FIRE launches the ball.
+
+Steps 2M - 6M    Reward climbs toward 10-30. The agent reliably hits the
+                 ball back and clears the bottom rows of bricks.
+
+Steps 6M - 12M   Reward enters the 30-100 range. The agent clears most
+                 of the wall in a typical episode.
+
+Steps 12M - 20M  Reward approaches 200+ and sometimes 400+. The agent has
+                 discovered the "tunnel" strategy: clearing one vertical
+                 column to send the ball above the wall where it bounces
+                 around scoring many points without needing the paddle.
+
+If the smoothed reward is still under 5 after 5M steps, something is wrong
+with the training setup rather than it just being too early to see
+progress.
+
+
+WHY BREAKOUT IS HARDER THAN PONG
+---------------------------------
+
+Pong gives a reward signal every few seconds (each point scored). Breakout's
+reward signal is much sparser: the agent only gets a reward when it hits a
+brick, and the lower bricks (1 point) appear early but the upper bricks (7
+points) only become reachable after the wall is partially cleared.
+
+This sparse-reward structure is why Breakout needs ~2-5× more steps than
+Pong to reach expert play.
+
+
+KEY PARAMETER REFERENCE (config.py)
+-------------------------------------
+
+INITIAL_LR      2.5e-4   Learning rate, anneals linearly to 0.
+ent_coef        0.01     Entropy bonus. RL-Zoo recipe value. Raising it
+                         (tried 0.04) only lifts a stuck policy slightly then
+                         re-plateaus AND blocks convergence to tunneling —
+                         keep at 0.01 for the exploit/converge phase.
+clip_range      0.1→0    Anneals linearly to 0 (lin_0.1). Set in build_model
+                         for fresh runs and re-applied on resume.
+vf_coef         0.5      Weight of the value loss in the total loss.
+n_steps         128      Rollout length per environment per update.
+n_epochs        4        PPO epochs per rollout.
+batch_size      256      Minibatch size.
+N_ENVS          4        Parallel environments (benchmark uses 8; reduced
+                         here for the Jetson's RAM/OOM limit).
+TOTAL_TIMESTEPS 20M      Benchmark hits ~398 raw by 10M; 20M gives margin.
+
+This config matches the proven RL-Zoo PPO Breakout recipe
+(huggingface.co/sb3/ppo-BreakoutNoFrameskip-v4), which reaches ~398.
+
+
+MEASURING THE TRUE SCORE (clipped-per-life vs raw full-game)
+-------------------------------------------------------------
+In-training eval (progress.csv, evaluations.npz, tiers) reports CLIPPED
+reward per LIFE (each brick = +1; episode = 1 life), because make_atari_env
+applies ClipRewardEnv + EpisodicLifeEnv. The published "~398" benchmark is
+RAW score over a full 5-life game — a different scale, NOT comparable.
+
+To get a benchmark-comparable number, run eval_raw.py (clip_reward=False,
+terminal_on_life_loss=False) — but ONLY while the trainer is stopped (two
+PPO processes exhaust this box's RAM). Note: in a full game the agent must
+press FIRE to relaunch after each lost life; a weak policy stalls there, so
+the raw number can read pessimistically low.

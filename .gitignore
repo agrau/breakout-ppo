@@ -1,0 +1,17 @@
+# Model weights / checkpoints / archived runs (large binaries — kept locally)
+models/
+backups/
+
+# Training + run artifacts (regenerable)
+logs/
+training.log
+training.log.*
+videos/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Local Claude Code setup (skills, memory) — not part of the published source
+.claude/
